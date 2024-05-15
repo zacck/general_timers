@@ -18,14 +18,19 @@
 
 #include "main.h"
 
+
 #define BLUE_LED_PORT GPIOD
 #define BLUE_LED_PIN 15
 
 static void SetSystemClockTo16Mhz(void);
+static void ConfigureTim3(void);
+static void delay( uint32_t ms);
 
 int main(void)
 {
 	SetSystemClockTo16Mhz();
+	ConfigureTim3();
+
 
 	//Turn on Blue LED with pure CMSIS
 	RCC->AHB1ENR |= RCC_AHB1ENR_GPIODEN;
@@ -39,12 +44,56 @@ int main(void)
 	GPIOD->PUPDR &= ~GPIO_PUPDR_PUPDR15_1;
 
 
-	GPIOD->BSRR |= GPIO_BSRR_BS_15;
+
 
 
     /* Loop forever */
-	for(;;);
+	while(1)
+	{
+		GPIOD->BSRR |= GPIO_BSRR_BS_15;
+		delay(1000);
+		GPIOD->BSRR |= GPIO_BSRR_BR_15;
+		delay(4000);
+	}
 }
+
+static void delay( uint32_t ms ){
+	//iterator
+	uint32_t i;
+
+	for(i = 0; i <= ms; i++) {
+		//Clear the count on the timer
+		TIM3->CNT = 0;
+
+		//wait for UIF
+		while ((TIM3->SR & TIM_SR_UIF) == 0)
+			;
+
+		/* Reset UIF */
+		TIM3->SR &= ~TIM_SR_UIF;
+	}
+}
+
+
+/*
+ * Configure timer 3 so that we can use it for some delays
+ */
+static void ConfigureTim3(void){
+	//enable clock for timer 3
+	RCC->APB1ENR |= RCC_APB1ENR_TIM3EN;
+
+	// set a prescaler so we get 1MHz
+	//Required freq = CLK / (PSC + 1)
+	TIM3->PSC = 15;
+
+	/* (1 MHz / 1000) = 1KHz = 1ms */
+	/* So, this will generate the 1ms delay */
+	TIM3->ARR = 999;
+
+	/* Finally enable TIM3 module */
+	TIM3->CR1 = (1 << 0);
+}
+
 
 
 /*
