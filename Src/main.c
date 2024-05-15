@@ -70,6 +70,7 @@ int main(void)
 		delay(1000);
 		GPIOD->BSRR |= GPIO_BSRR_BR_15;
 		delay(4000);
+
 	}
 }
 
@@ -126,6 +127,9 @@ static void ConfigureTim4(void){
 	/* So, this will generate the 1s delay */
 	TIM4->ARR = 999;
 
+	//Enable timer to generate update events
+	TIM4->EGR |= TIM_EGR_UG;
+
 	/* Enable the Interrupt */
 	TIM4->DIER |= TIM_DIER_UIE;
 
@@ -136,7 +140,7 @@ static void ConfigureTim4(void){
 	NVIC_EnableIRQ(TIM4_IRQn);
 
 	/* Finally enable TIM4 module */
-	TIM4->CR1 = (1 << 0);
+	TIM4->CR1 |= TIM_CR1_CEN;
 }
 
 void TIM4_IRQHandler(void){
@@ -152,7 +156,7 @@ void TIM4_IRQHandler(void){
 			GPIOD->BSRR |= GPIO_BSRR_BR_13;
 		}
 		// Clear Interrupt Flag
-		TIM4->SR &= TIM_SR_UIF;
+		TIM4->SR &= ~(TIM_SR_UIF);
 	}
 
 }
