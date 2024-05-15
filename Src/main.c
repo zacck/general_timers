@@ -17,6 +17,8 @@
  */
 
 #include "main.h"
+#include <stdbool.h>
+
 
 
 #define BLUE_LED_PORT GPIOD
@@ -24,12 +26,17 @@
 
 static void SetSystemClockTo16Mhz(void);
 static void ConfigureTim3(void);
+static void ConfigureTim4(void);
 static void delay( uint32_t ms);
+
+static volatile bool led_on = 0;
+
 
 int main(void)
 {
 	SetSystemClockTo16Mhz();
 	ConfigureTim3();
+	ConfigureTim4();
 
 
 	//Turn on Blue LED with pure CMSIS
@@ -43,11 +50,20 @@ int main(void)
 	GPIOD->PUPDR &= ~GPIO_PUPDR_PUPDR15_0;
 	GPIOD->PUPDR &= ~GPIO_PUPDR_PUPDR15_1;
 
+	//Configure Orange LED
+	GPIOD->MODER |= GPIO_MODER_MODER13_0;
+	GPIOD->MODER &= ~GPIO_MODER_MODER13_1;
+	GPIOD->OTYPER &= ~GPIO_OTYPER_OT_13;
+	GPIOD->OSPEEDR |= GPIO_OSPEEDER_OSPEEDR13_0;
+	GPIOD->OSPEEDR &= ~GPIO_OSPEEDER_OSPEEDR13_1;
+	GPIOD->PUPDR &= ~GPIO_PUPDR_PUPDR13_0;
+	GPIOD->PUPDR &= ~GPIO_PUPDR_PUPDR13_1;
 
 
 
 
-    /* Loop forever */
+
+    /* Loop forever*/
 	while(1)
 	{
 		GPIOD->BSRR |= GPIO_BSRR_BS_15;
@@ -92,6 +108,53 @@ static void ConfigureTim3(void){
 
 	/* Finally enable TIM3 module */
 	TIM3->CR1 = (1 << 0);
+}
+
+
+/*
+ * Configure Timer 4 so we can use it for interrupts
+ */
+static void ConfigureTim4(void){
+	//enable clock for timer 4
+	RCC->APB1ENR |= RCC_APB1ENR_TIM4EN;
+
+	// set a prescaler so we get 1KHz
+	//Required freq = CLK / (PSC + 1)
+	TIM4->PSC = 15999;
+
+	/* (1 KHz / 1000) = 1Hz = 1s */
+	/* So, this will generate the 1s delay */
+	TIM4->ARR = 999;
+
+	/* Enable the Interrupt */
+	TIM4->DIER |= TIM_DIER_UIE;
+
+	/* Clear the Interrupt Status */
+	TIM4->SR &= ~TIM_SR_UIF;
+
+	/* Enable NVIC Interrupt for Timer 4 */
+	NVIC_EnableIRQ(TIM4_IRQn);
+
+	/* Finally enable TIM4 module */
+	TIM4->CR1 = (1 << 0);
+}
+
+void TIM4_IRQHandler(void){
+	//check if UIF flag is set
+	if(TIM4->SR & TIM_SR_UIF)
+	{
+		//flip our LED
+		led_on = !led_on;
+
+		if(led_on) {
+			GPIOD->BSRR |= GPIO_BSRR_BS_13;
+		} else {
+			GPIOD->BSRR |= GPIO_BSRR_BR_13;
+		}
+		// Clear Interrupt Flag
+		TIM4->SR &= TIM_SR_UIF;
+	}
+
 }
 
 
