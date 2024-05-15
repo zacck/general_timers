@@ -27,9 +27,11 @@
 static void SetSystemClockTo16Mhz(void);
 static void ConfigureTim3(void);
 static void ConfigureTim4(void);
+static void ConfigureSysTick(void);
 static void delay( uint32_t ms);
 
 static volatile bool led_on = 0;
+static volatile bool tick_led_on = 0;
 
 
 int main(void)
@@ -37,6 +39,7 @@ int main(void)
 	SetSystemClockTo16Mhz();
 	ConfigureTim3();
 	ConfigureTim4();
+	ConfigureSysTick();
 
 
 	//Turn on Blue LED with pure CMSIS
@@ -58,6 +61,15 @@ int main(void)
 	GPIOD->OSPEEDR &= ~GPIO_OSPEEDER_OSPEEDR13_1;
 	GPIOD->PUPDR &= ~GPIO_PUPDR_PUPDR13_0;
 	GPIOD->PUPDR &= ~GPIO_PUPDR_PUPDR13_1;
+
+	//Configure Green LED
+	GPIOD->MODER |= GPIO_MODER_MODER12_0;
+	GPIOD->MODER &= ~GPIO_MODER_MODER12_1;
+	GPIOD->OTYPER &= ~GPIO_OTYPER_OT_12;
+	GPIOD->OSPEEDR |= GPIO_OSPEEDER_OSPEEDR12_0;
+	GPIOD->OSPEEDR &= ~GPIO_OSPEEDER_OSPEEDR12_1;
+	GPIOD->PUPDR &= ~GPIO_PUPDR_PUPDR12_0;
+	GPIOD->PUPDR &= ~GPIO_PUPDR_PUPDR12_1;
 
 
 
@@ -161,6 +173,27 @@ void TIM4_IRQHandler(void){
 
 }
 
+/*
+ * Lets Enable Systick
+ */
+static void ConfigureSysTick(void){
+	// We should compute this from the registers maybe?
+	SysTick_Config(1600000 - 1);
+}
+
+
+void SysTick_Handler(void) {
+
+	//flip our LED
+	tick_led_on = !tick_led_on;
+
+	if (tick_led_on) {
+		GPIOD->BSRR |= GPIO_BSRR_BS_12;
+	} else {
+		GPIOD->BSRR |= GPIO_BSRR_BR_12;
+	}
+
+}
 
 
 /*
