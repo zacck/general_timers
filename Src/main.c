@@ -25,7 +25,7 @@
 #define BLUE_LED_PIN 15
 
 static void SetSystemClockTo16Mhz(void);
-static void ConfigureTim3(void);
+static void ConfigureTim6(void);
 static void ConfigureTim4(void);
 static void ConfigureSysTick(void);
 static void delay( uint32_t ms);
@@ -37,7 +37,7 @@ static volatile bool tick_led_on = 0;
 int main(void)
 {
 	SetSystemClockTo16Mhz();
-	ConfigureTim3();
+	ConfigureTim6();
 	ConfigureTim4();
 	ConfigureSysTick();
 
@@ -92,14 +92,14 @@ static void delay( uint32_t ms ){
 
 	for(i = 0; i <= ms; i++) {
 		//Clear the count on the timer
-		TIM3->CNT = 0;
+		TIM6->CNT = 0;
 
 		//wait for UIF
-		while ((TIM3->SR & TIM_SR_UIF) == 0)
+		while ((TIM6->SR & TIM_SR_UIF) == 0)
 			;
 
 		/* Reset UIF */
-		TIM3->SR &= ~TIM_SR_UIF;
+		TIM6->SR &= ~TIM_SR_UIF;
 	}
 }
 
@@ -107,20 +107,20 @@ static void delay( uint32_t ms ){
 /*
  * Configure timer 3 so that we can use it for some delays
  */
-static void ConfigureTim3(void){
+static void ConfigureTim6(void){
 	//enable clock for timer 3
-	RCC->APB1ENR |= RCC_APB1ENR_TIM3EN;
+	RCC->APB1ENR |= RCC_APB1ENR_TIM6EN;
 
 	// set a prescaler so we get 1MHz
 	//Required freq = CLK / (PSC + 1)
-	TIM3->PSC = 15;
+	TIM6->PSC = 15;
 
 	/* (1 MHz / 1000) = 1KHz = 1ms */
 	/* So, this will generate the 1ms delay */
-	TIM3->ARR = 999;
+	TIM6->ARR = 999;
 
 	/* Finally enable TIM3 module */
-	TIM3->CR1 = (1 << 0);
+	TIM6->CR1 = (1 << 0);
 }
 
 
