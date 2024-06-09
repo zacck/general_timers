@@ -27,12 +27,21 @@
 static void SetSystemClockTo16Mhz(void);
 static void ConfigureTim6(void);
 static void ConfigureTim4(void);
+static void ConfigureTim2(void);
+static void ConfigurePA0(void);
+static void ConfigureLSE(void);
 static void ConfigureSysTick(void);
-static void delay( uint32_t ms);
+
 
 static volatile bool led_on = 0;
 static volatile bool tick_led_on = 0;
+static volatile bool tim_led_on = 0;
+static volatile bool rev_led_on = 0;
 
+void delay(void)
+{
+	for(uint32_t i = 0 ; i < 500000/2 ; i ++);
+}
 
 int main(void)
 {
@@ -72,36 +81,76 @@ int main(void)
 	GPIOD->PUPDR &= ~GPIO_PUPDR_PUPDR12_1;
 
 
+	ConfigureLSE();
+
+
 
 
 
     /* Loop forever*/
 	while(1)
 	{
-		GPIOD->BSRR |= GPIO_BSRR_BS_15;
-		delay(1000);
-		GPIOD->BSRR |= GPIO_BSRR_BR_15;
-		delay(4000);
+
 
 	}
 }
 
-static void delay( uint32_t ms ){
-	//iterator
-	uint32_t i;
+/*
+ * Configure  PA8 for MCO1 so we can use it for timer output
+ */
+static void ConfigurePA8(void){
 
-	for(i = 0; i <= ms; i++) {
-		//Clear the count on the timer
-		TIM6->CNT = 0;
+	RCC->AHB1ENR |= RCC_AHB1ENR_GPIOAEN;
 
-		//wait for UIF
-		while ((TIM6->SR & TIM_SR_UIF) == 0)
-			;
+	GPIOA->MODER |= GPIO_MODER_MODER8_1;
+	GPIOA->OSPEEDR |= GPIO_OSPEEDER_OSPEEDR8;
+	GPIOA->AFR[1]   &= ~GPIO_AFRH_AFRH0;
 
-		/* Reset UIF */
-		TIM6->SR &= ~TIM_SR_UIF;
-	}
 }
+
+/*
+ * Configure LSE and ouput it on a pin so we can measure it with input compare
+ * */
+static void ConfigureLSE(void){
+	ConfigurePA8();
+
+
+	/* Enable the power interface clock
+	RCC->APB1ENR |= RCC_APB1ENR_PWREN;
+
+	// Enable access to the backup domain
+	PWR->CR |= PWR_CR_DBP;
+
+	// Wait for the backup domain write protection disable bit to take effect
+	while ((PWR->CR & PWR_CR_DBP) == 0) {
+
+
+	}
+
+	// Perform a backup domain reset
+	RCC->BDCR |= RCC_BDCR_BDRST;
+
+	// Release the backup domain reset
+	RCC->BDCR &= ~RCC_BDCR_BDRST;
+
+	// Enable the LSE oscillator
+	RCC->CSR |= RCC_CSR_LSION;
+
+	// Wait until LSE is ready
+	while ((RCC->CSR & RCC_CSR_LSIRDY) == 0) {
+
+
+	}
+	USE ABOVE IF YOU HAVE LSE*/
+
+	// POINT Clock output GPIO (PA8 in this case)
+	RCC->CFGR &= ~RCC_CFGR_MCO1_Msk;
+
+
+
+}
+
+
 
 
 /*
@@ -111,17 +160,148 @@ static void ConfigureTim6(void){
 	//enable clock for timer 3
 	RCC->APB1ENR |= RCC_APB1ENR_TIM6EN;
 
+
 	// set a prescaler so we get 1MHz
 	//Required freq = CLK / (PSC + 1)
 	TIM6->PSC = 15;
 
-	/* (1 MHz / 1000) = 1KHz = 1ms */
+	/* (1 MHz / 10000) = 100Hz = 100ms */
 	/* So, this will generate the 1ms delay */
-	TIM6->ARR = 999;
+	TIM6->ARR = 99999;
+
+	//Enable timer to generate update events
+	TIM6->EGR |= TIM_EGR_UG;
+
+	/* Enable the Interrupt */
+	TIM6->DIER |= TIM_DIER_UIE;
+
+	/* Clear the Interrupt Status */
+	TIM6->SR &= ~TIM_SR_UIF;
+
+	/* Enable NVIC Interrupt for Timer 6 */
+	NVIC_EnableIRQ(TIM6_DAC_IRQn);
 
 	/* Finally enable TIM3 module */
 	TIM6->CR1 = (1 << 0);
 }
+
+void TIM6_DAC_IRQHandler(void) {
+	//check if UIF flag is set
+	if (TIM6->SR & TIM_SR_UIF) {
+		//flip our LED
+		tim_led_on = !tim_led_on;
+
+		if (tim_led_on) {
+			GPIOD->BSRR |= GPIO_BSRR_BS_15;
+		} else {
+			GPIOD->BSRR |= GPIO_BSRR_BR_15;
+		}
+		// Clear Interrupt Flag
+		TIM6->SR &= ~(TIM_SR_UIF);
+	}
+
+}
+
+/*
+ * Configure  PA0 for Timer 2 so we can use it for input compare
+ */
+static void ConfigurePA0(void){
+
+	//Turn on Blue LED with pure CMSIS
+	RCC->AHB1ENR |= RCC_AHB1ENR_GPIOAEN;
+
+	GPIOA->MODER |= GPIO_MODER_MODER0_1;
+	GPIOA->OSPEEDR |= GPIO_OSPEEDER_OSPEEDR0;
+	GPIOA->AFR[0]   |= GPIO_AFRH_AFRH0_1;
+
+}
+
+
+
+/*
+ * Configure Timer 2 so we can use it for input compare
+ */
+static void ConfigureTim2(void){
+	//Start with a known state
+	TIM2->CR1 &= ~TIM_CR1_CEN;
+
+	//enable clock for timer 4
+	RCC->APB1ENR |= RCC_APB1ENR_TIM4EN;
+
+	ConfigurePA0();
+
+
+	// set a prescaler so we get 2MHz
+	//Required freq = CLK / (PSC + 1)
+	TIM2->PSC = 7;
+
+	/*Let timer count to max*/
+	TIM2->ARR = 1999999;
+
+	//Select channel 1 as Input
+	TIM2->CCMR1 |= TIM_CCMR1_CC1S_0;
+
+	//Set Filter
+	TIM2->CCMR1 |= TIM_CCMR1_IC1F_3;
+
+	//Select rising edge by resetting CC1NP
+	TIM2->CCER &= ~TIM_CCER_CC1NP;
+	TIM2->CCER &= ~TIM_CCER_CC1P;
+
+	//Enable Capture Into reg
+	TIM2->CCER |= TIM_CCER_CC1E;
+
+
+
+	/* Enable the Interrupt */
+	TIM2->DIER |= TIM_DIER_UIE;
+
+	/* Clear the Interrupt Status */
+	TIM2->SR &= ~TIM_SR_UIF;
+	TIM2->SR &= ~TIM_SR_CC1IF;
+
+
+	/* Enable NVIC Interrupt for Timer 4 */
+	NVIC_EnableIRQ(TIM2_IRQn);
+
+
+
+	//the next two lines to reset the timer
+	TIM2->CR1 &= ~TIM_CR1_UDIS;
+
+	//Enable timer to generate update events
+	TIM2->EGR |= TIM_EGR_UG;
+
+
+	/* Finally enable TIM4 module */
+	TIM2->CR1 |= TIM_CR1_CEN;
+}
+
+uint32_t revs  =  0;
+
+
+void TIM2_IRQHandler(void){
+	//check if UIF flag is set
+	if(TIM2->SR & TIM_SR_CC1IF)
+	{
+		//flip our LED
+		rev_led_on = !rev_led_on;
+
+		revs =  TIM2->CCR1;
+
+		if(rev_led_on) {
+			GPIOD->BSRR |= GPIO_BSRR_BS_12;
+		} else {
+			GPIOD->BSRR |= GPIO_BSRR_BR_12;
+		}
+		// Clear Interrupt Flag
+		TIM2->SR &= ~(TIM_SR_CC1IF);
+
+	}
+
+}
+
+
 
 
 /*
