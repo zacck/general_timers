@@ -263,8 +263,12 @@ void TIM6_DAC_IRQHandler(void) {
 		tim_led_on = !tim_led_on;
 
 		if (tim_led_on) {
+			//Enable compare mode
+			TIM3->CCER &= ~TIM_CCER_CC1E;
 			GPIOD->BSRR |= GPIO_BSRR_BS_15;
 		} else {
+			//Enable compare mode
+			TIM3->CCER |= TIM_CCER_CC1E;
 			GPIOD->BSRR |= GPIO_BSRR_BR_15;
 		}
 		// Clear Interrupt Flag
