@@ -30,6 +30,8 @@ static void ConfigureTim4(void);
 static void ConfigureTim2(void);
 static void ConfigurePA0(void);
 static void ConfigureLSE(void);
+static void PwmOnTim3(void);
+static void PA6asPWM(void);
 static void ConfigureSysTick(void);
 
 
@@ -48,7 +50,9 @@ int main(void)
 	SetSystemClockTo16Mhz();
 	ConfigureTim6();
 	ConfigureTim4();
+	ConfigureTim2();
 	ConfigureSysTick();
+	PwmOnTim3();
 
 
 	//Turn on Blue LED with pure CMSIS
@@ -93,6 +97,73 @@ int main(void)
 
 
 	}
+}
+
+/*
+ * Configure PA6 to run PWM out put
+ */
+static void PA6asPWM(void){
+	//Enabe IOPA clock
+	RCC->AHB1ENR |= RCC_AHB1ENR_GPIOAEN;
+
+	//AF mode
+	GPIOA->MODER |= GPIO_MODER_MODER6_1;
+	//Max Speed
+	GPIOA->OSPEEDR |= GPIO_OSPEEDER_OSPEEDR6;
+	//AF2 mode
+	//GPIOA->AFR[0] |= GPIO_AFRL_AFRL6_2;
+	GPIOA->AFR[0] = 0x02000000;
+}
+
+
+/*
+ * Run PWM on tim3 channel 1
+ */
+static void PwmOnTim3(void){
+
+	//Configure PA6 as output
+	PA6asPWM();
+	//enable timer 3 clock
+	RCC->APB1ENR |= RCC_APB1ENR_TIM3EN;
+
+	TIM3->CR1 &= ~TIM_CR1_CEN;
+
+	//Enable ARPE
+	TIM3->CR1 |= TIM_CR1_ARPE;
+
+	//dont pre scale this clock so it runs at 16 MHZ like sys
+	TIM3->PSC = 0;
+
+	//set the arr for a 300khz period
+	TIM3->ARR = 53;
+
+	//use the ccr reg for duty of
+	TIM3->CCR1 = 2;
+
+	//set the timer to pwm mode 1 on channel 1
+	TIM3->CCMR1 |=  6U << TIM_CCMR1_OC1M_Pos;
+	//Enable channel 1 preload
+	TIM3->CCMR1 |= TIM_CCMR1_OC1PE;
+
+	//Enable compare mode
+	TIM3->CCER |= TIM_CCER_CC1E;
+
+
+
+
+	//load prescaler and enable update events
+	TIM3->EGR |= TIM_EGR_UG;
+	TIM3->CR1 |= TIM_CR1_CEN;
+
+	//wait for update evebt
+	while(!(TIM3->SR & TIM_SR_UIF));
+
+	// Clear Interrupt Flag
+	TIM3->SR &= ~(TIM_SR_UIF);
+
+	//Reset the counter
+	TIM3->CNT = 0;
+
 }
 
 /*
