@@ -18,6 +18,8 @@
 
 #include "main.h"
 #include <stdbool.h>
+#include <stdio.h>
+
 
 
 
@@ -29,10 +31,21 @@ static void ConfigureTim6(void);
 static void ConfigureTim4(void);
 static void ConfigureTim2(void);
 static void ConfigurePA0(void);
-static void ConfigureLSE(void);
+static void setupMCO1(void);
 static void PwmOnTim3(void);
 static void PA6asPWM(void);
 static void ConfigureSysTick(void);
+
+/*RTC*/
+
+static void setupRTC(void);
+static void setupLSI(void);
+static void initRTC(void);
+static void loadDate(void);
+static void getDateTime(void);
+
+
+ /* END RTC*/
 
 
 static volatile bool led_on = 0;
@@ -53,6 +66,10 @@ int main(void)
 	ConfigureTim2();
 	ConfigureSysTick();
 	PwmOnTim3();
+
+
+
+
 
 
 	//Turn on Blue LED with pure CMSIS
@@ -85,9 +102,12 @@ int main(void)
 	GPIOD->PUPDR &= ~GPIO_PUPDR_PUPDR12_1;
 
 
-	ConfigureLSE();
+	setupMCO1();
+	setupRTC();
 
 
+
+	printf("We have SWD\n");
 
 
 
@@ -95,9 +115,153 @@ int main(void)
 	while(1)
 	{
 
-
 	}
 }
+
+/* RTC STUFF */
+
+static void setupRTC(void){
+	//1.setup LS
+	setupLSI();
+	//2.Select RTC Clock & Init RTC
+	initRTC();
+	//3.Set Time & Date
+	loadDate();
+	//4.Get Time & Date
+	getDateTime();
+	//5.Set & Get Alarm
+	//6.Deactivate Alarm
+
+}
+
+static void setupLSI(void) {
+	/* Enable the power interface clock*/
+	RCC->APB1ENR |= RCC_APB1ENR_PWREN;
+
+	// Enable access to the backup domain
+	PWR->CR |= PWR_CR_DBP;
+
+	// Wait for the backup domain write protection disable bit to take effect
+	while ((PWR->CR & PWR_CR_DBP) == 0) {
+
+	}
+
+	// Perform a backup domain reset
+	RCC->BDCR |= RCC_BDCR_BDRST;
+
+	// Release the backup domain reset
+	RCC->BDCR &= ~RCC_BDCR_BDRST;
+
+	// Enable the LSI oscillator
+	RCC->CSR |= RCC_CSR_LSION;
+
+	// Wait until LSI is ready
+	while ((RCC->CSR & RCC_CSR_LSIRDY) == 0) {
+
+	}
+
+	printf("LSI READY\n");
+
+	//select LSI as RTC CLOCK
+	RCC->BDCR |= RCC_BDCR_RTCSEL_1;
+
+
+	printf("LSI is RTC CLK\n");
+
+
+
+}
+
+void initRTC(void) {
+	// Enable RTC
+	RCC->BDCR |= RCC_BDCR_RTCEN;
+
+	//Unlock Write Protection after backup domain reset
+	RTC->WPR = 0xCA;
+	RTC->WPR = 0x53;
+
+	//Enter init mode
+	RTC->ISR |= RTC_ISR_INIT;
+
+	//wait until initf is set
+	while((RTC->ISR & RTC_ISR_INITF) == 0){
+
+	}
+
+
+
+	//Prescalers
+	//S
+	RTC->PRER |= 0xF9;
+	//A
+	RTC->PRER |= 0x7F0000;
+
+
+
+
+	printf("RTC inited \n");
+
+
+}
+
+static void loadDate(void) {
+	// Load Date
+	RTC->DR = ((0x3 << RTC_DR_DU_Pos) | (0x1 << RTC_DR_DT_Pos) | // Day: 13
+			(0x6 << RTC_DR_MU_Pos) | (0x0 << RTC_DR_MT_Pos) | // Month: June (6)
+			(0x4 << RTC_DR_WDU_Pos) |                  // Weekday: Thursday (4)
+			(0x4 << RTC_DR_YU_Pos) | (0x2 << RTC_DR_YT_Pos)); // Year: 24 (2024)
+
+	// Load Time
+	RTC->TR = ((0x3 << RTC_TR_SU_Pos) | (0x3 << RTC_TR_ST_Pos) | // Seconds: 33
+			(0x6 << RTC_TR_MNU_Pos) | (0x4 << RTC_TR_MNT_Pos) | // Minutes: 29
+			(0x2 << RTC_TR_HU_Pos) | (0x2 << RTC_TR_HT_Pos)); // Hours: 14 (2 PM)
+
+	// Exit initialization mode
+	RTC->ISR &= ~RTC_ISR_INIT;
+
+	// Lock Write Protection
+	RTC->WPR = 0xFF;
+
+
+	printf("Date & Time loaded\n");
+
+}
+
+static void getDateTime(void){
+	//Ensure Synchronization
+    RTC->ISR &= ~RTC_ISR_RSF;
+
+	while((RTC->ISR & RTC_ISR_RSF) == 0){
+
+	}
+
+	uint32_t date = RTC->DR;
+	uint8_t day = ((date & RTC_DR_DT_Msk) >> RTC_DR_DT_Pos) * 10
+			+ ((date & RTC_DR_DU_Msk) >> RTC_DR_DU_Pos);
+	uint8_t month = ((date & RTC_DR_MT_Msk) >> RTC_DR_MT_Pos) * 10
+			+ ((date & RTC_DR_MU_Msk) >> RTC_DR_MU_Pos);
+	uint8_t year = ((date & RTC_DR_YT_Msk) >> RTC_DR_YT_Pos) * 10
+			+ ((date & RTC_DR_YU_Msk) >> RTC_DR_YU_Pos);
+	uint8_t weekday = (date & RTC_DR_WDU_Msk) >> RTC_DR_WDU_Pos;
+
+	uint32_t time = RTC->TR;
+	uint8_t hours = ((time & RTC_TR_HT_Msk) >> RTC_TR_HT_Pos) * 10
+			+ ((time & RTC_TR_HU_Msk) >> RTC_TR_HU_Pos);
+	uint8_t minutes = ((time & RTC_TR_MNT_Msk) >> RTC_TR_MNT_Pos) * 10
+			+ ((time & RTC_TR_MNU_Msk) >> RTC_TR_MNU_Pos);
+	uint8_t seconds = ((time & RTC_TR_ST_Msk) >> RTC_TR_ST_Pos) * 10
+			+ ((time & RTC_TR_SU_Msk) >> RTC_TR_SU_Pos);
+
+
+    printf("Date: %02d-%02d-20%02d, Weekday: %d\n", day, month, year, weekday);
+    printf("Time: %02d:%02d:%02d\n", hours, minutes, seconds);
+
+
+}
+
+
+
+/* END RTC */
 
 /*
  * Configure PA6 to run PWM out put
@@ -135,10 +299,10 @@ static void PwmOnTim3(void){
 	TIM3->PSC = 0;
 
 	//set the arr for a 300khz period
-	TIM3->ARR = 53;
+	TIM3->ARR = 1599;
 
 	//use the ccr reg for duty of
-	TIM3->CCR1 = 2;
+	TIM3->CCR1 = 799;
 
 	//set the timer to pwm mode 1 on channel 1
 	TIM3->CCMR1 |=  6U << TIM_CCMR1_OC1M_Pos;
@@ -182,43 +346,10 @@ static void ConfigurePA8(void){
 /*
  * Configure LSE and ouput it on a pin so we can measure it with input compare
  * */
-static void ConfigureLSE(void){
+static void setupMCO1(void){
 	ConfigurePA8();
-
-
-	/* Enable the power interface clock
-	RCC->APB1ENR |= RCC_APB1ENR_PWREN;
-
-	// Enable access to the backup domain
-	PWR->CR |= PWR_CR_DBP;
-
-	// Wait for the backup domain write protection disable bit to take effect
-	while ((PWR->CR & PWR_CR_DBP) == 0) {
-
-
-	}
-
-	// Perform a backup domain reset
-	RCC->BDCR |= RCC_BDCR_BDRST;
-
-	// Release the backup domain reset
-	RCC->BDCR &= ~RCC_BDCR_BDRST;
-
-	// Enable the LSE oscillator
-	RCC->CSR |= RCC_CSR_LSION;
-
-	// Wait until LSE is ready
-	while ((RCC->CSR & RCC_CSR_LSIRDY) == 0) {
-
-
-	}
-	USE ABOVE IF YOU HAVE LSE*/
-
 	// POINT Clock output GPIO (PA8 in this case)
 	RCC->CFGR &= ~RCC_CFGR_MCO1_Msk;
-
-
-
 }
 
 
@@ -264,11 +395,11 @@ void TIM6_DAC_IRQHandler(void) {
 
 		if (tim_led_on) {
 			//Enable compare mode
-			TIM3->CCER &= ~TIM_CCER_CC1E;
+			//TIM3->CCER &= ~TIM_CCER_CC1E;
 			GPIOD->BSRR |= GPIO_BSRR_BS_15;
 		} else {
 			//Enable compare mode
-			TIM3->CCER |= TIM_CCER_CC1E;
+			//TIM3->CCER |= TIM_CCER_CC1E;
 			GPIOD->BSRR |= GPIO_BSRR_BR_15;
 		}
 		// Clear Interrupt Flag
@@ -417,7 +548,8 @@ void TIM4_IRQHandler(void){
 		//flip our LED
 		led_on = !led_on;
 
-		if(led_on) {
+		if (led_on) {
+			getDateTime();
 			GPIOD->BSRR |= GPIO_BSRR_BS_13;
 		} else {
 			GPIOD->BSRR |= GPIO_BSRR_BR_13;
